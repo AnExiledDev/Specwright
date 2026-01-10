@@ -1,5 +1,5 @@
 {
   "name": "specwright",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Spec-driven development automation with phased implementation, parallel execution, and verification loops"
 }
