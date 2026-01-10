@@ -1,0 +1,17 @@
+{
+  "name": "specwright-marketplace",
+  "version": "1.0.0",
+  "description": "Marketplace for Specwright - a spec-driven development automation workflow",
+  "owner": {
+    "name": "AnExiledDev",
+    "email": "anexileddev@proton.me"
+  },
+  "plugins": [
+    {
+      "name": "specwright",
+      "description": "Spec-driven development automation with phased implementation, parallel execution, and verification loops",
+      "version": "1.0.0",
+      "source": "./plugins/specwright"
+    }
+  ]
+}
