@@ -121,14 +121,20 @@ Accept user input describing changes:
 
 If revision introduces ambiguity:
 - Ask focused questions (same format as /define)
-- Max 3 rounds for revisions
 - Options with recommendations
+
+**Only ask what you cannot determine yourself.**
+- ✓ User intent when revision is ambiguous
+- ✓ Priority when requirements conflict
+- ✗ Impact on existing code (analyze yourself)
+- ✗ Technical feasibility (determine from codebase)
 
 **Question triggers:**
 - New requirement lacks detail
 - Conflict with existing requirement
 - Scope unclear
-- Implementation impact unclear
+
+Stop when revision intent is clear.
 
 ### Step 6: Two-Step Revision
 

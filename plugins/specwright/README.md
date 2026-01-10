@@ -2,6 +2,54 @@
 
 Spec-driven development automation with phased implementation, parallel execution, and verification loops.
 
+## Installation
+
+```bash
+# Add the marketplace
+/plugin marketplace add AnExiledDev/Specwright
+
+# Install the plugin
+/plugin install specwright
+```
+
+## Prerequisites
+
+The `indexing` agent requires [ast-grep](https://ast-grep.github.io/) for codebase symbol extraction.
+
+**Install via npm (recommended):**
+```bash
+npm install -g @ast-grep/cli
+```
+
+**Install via Cargo (Rust):**
+```bash
+cargo install ast-grep --locked
+```
+
+**Install via pip:**
+```bash
+pip install ast-grep-cli
+```
+
+**Linux package managers:**
+```bash
+# Arch Linux
+pacman -S ast-grep
+
+# Homebrew (Linux/macOS)
+brew install ast-grep
+```
+
+Verify installation: `ast-grep --version`
+
+## Usage
+
+This plugin is designed to work with the included `ORCHESTRATOR.md` system prompt. Launch Claude Code with:
+
+```bash
+claude --system-prompt-file /path/to/ORCHESTRATOR.md
+```
+
 ## Commands
 
 | Command | Description |
@@ -35,3 +83,7 @@ Spec-driven development automation with phased implementation, parallel executio
 - `specwright-test-patterns` - Test generation patterns
 - `specwright-review-standards` - Code review standards
 - `specwright-security-review` - Security vulnerability checklist
+
+## License
+
+MIT - See LICENSE file.

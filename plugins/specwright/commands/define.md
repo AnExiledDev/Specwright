@@ -92,47 +92,54 @@ created: {timestamp}
 | `blocked` | Phase blocked, needs intervention |
 | `completed` | All phases done |
 
-### Step 4: Question Rounds
+### Step 4: Requirement Elicitation
 
 **Gather requirements through structured questioning.**
 
-**Per round (max 5 rounds):**
-- Ask 3-5 questions
+**Question format:**
 - Each question offers 2-4 options
 - Mark one option "(Recommended)" with one-sentence justification
 - User can select option or provide freeform answer
 
-**Question categories in order:**
+**Critical rule: Ask ONLY questions the user can answer.**
+- ✓ Business intent, preferences, constraints, priorities
+- ✓ Desired behavior, acceptance criteria, edge case handling preferences
+- ✗ Existing code patterns (analyze the codebase yourself)
+- ✗ File locations, API signatures, dependencies (use indexing_agent)
+- ✗ Technical implementation details you can determine from context
 
-1. **Scope** (Round 1):
+**Question categories (cover as relevant):**
+
+1. **Scope**:
    - What's included in this work?
    - What's explicitly excluded?
    - What's the minimal viable delivery?
 
-2. **Behavior** (Round 2):
+2. **Behavior**:
    - What happens in the happy path?
    - What happens when things go wrong?
    - What user actions trigger what system responses?
 
-3. **Constraints** (Round 3):
+3. **Constraints**:
    - Performance requirements?
    - Security requirements?
    - Compatibility requirements?
 
-4. **Integration** (Round 4):
-   - How does this interact with existing code?
-   - What existing APIs/services are involved?
+4. **Integration**:
+   - What external systems are involved?
    - What data migrations needed?
+   - What breaking changes are acceptable?
 
-5. **Edge Cases** (Round 5):
+5. **Edge Cases**:
    - What happens with invalid input?
    - What happens under load?
    - What happens when dependencies fail?
 
-**Exit conditions:**
-- User indicates sufficient detail ("that's enough", "let's proceed")
-- 5 rounds completed
-- No new questions emerge from previous answers
+**Stop asking when:**
+- User signals completion ("that's enough", "proceed", "looks good")
+- All relevant categories have been covered for this feature
+- Answers are yielding no new requirement information
+- You're asking questions you could answer yourself from code analysis
 
 ### Step 5: Two-Step Specification Generation
 

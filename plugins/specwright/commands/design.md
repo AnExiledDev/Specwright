@@ -73,10 +73,16 @@ Index stored at: `.specwright/{ticket}/index/symbols.yaml`
 ### Step 3: Technical Clarification (if needed)
 
 If specification has gaps for implementation planning:
-- Ask technical clarifying questions (max 2 rounds)
+- Ask technical clarifying questions as needed
 - Focus on: architecture choices, integration points, error handling strategy
 
-**Only ask if truly ambiguous.** Do not re-ask what spec already covers.
+**Only ask what you cannot determine yourself.**
+- ✓ User preferences between valid architectural approaches
+- ✓ Priority tradeoffs (performance vs maintainability)
+- ✗ Existing code patterns (analyze the codebase)
+- ✗ File structures, API signatures (use indexing_agent)
+
+Stop when answers yield no new planning information.
 
 ### Step 4: Two-Step Decomposition
 
@@ -109,7 +115,7 @@ Before generating phases and tasks:
 
 **Step 2 — Generate structure:**
 
-Target: **8-10 phases** with **2-5 tasks each**
+Target: **~2-4 hours of human effort per phase** — favor smaller phases over larger
 
 ### Step 5: Phase Ordering
 
@@ -419,8 +425,8 @@ Run `/build {ticket}` to continue
 
 1. **Index first** — Codebase context essential for good task decomposition
 2. **Two-step decomposition** — Reason through structure before generating
-3. **8-10 phases** — Not too few (too much per phase), not too many (overhead)
-4. **2-5 tasks per phase** — Manageable verification boundaries
+3. **~2-4 hours per phase** — Size for human developer effort, favor smaller phases
+4. **Smaller is better** — More phases = tighter verification loops, easier debugging
 5. **File ownership** — NO conflicts between parallel tasks
 6. **Task files contain tests** — test_agent reads same file as implementation_agent
 7. **Dependencies explicit** — Both task dependencies and symbol dependencies

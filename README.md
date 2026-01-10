@@ -4,11 +4,17 @@ Claude Code plugin marketplace for Specwright workflow automation.
 
 ## Installation
 
-Add this marketplace to your Claude Code configuration.
+```bash
+# Add the marketplace
+/plugin marketplace add AnExiledDev/Specwright
+
+# Install the plugin
+/plugin install specwright
+```
 
 ## Available Plugins
 
-- **specwright** - Spec-driven development automation with phased implementation, parallel execution, and verification loops
+- **specwright** - Spec-driven development automation with phased implementation, parallel execution, and verification loops.
 
 ## Structure
 
@@ -24,3 +30,7 @@ specwright-marketplace/
         ├── agents/
         └── skills/
 ```
+
+## License
+
+MIT - See LICENSE file.
