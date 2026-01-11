@@ -603,11 +603,11 @@ phase_complete: false
 
 **Flow:**
 
-For each phase (1 to N):
+1. **Check index staleness** (once at start, not per-phase)
+   - If index missing or source files newer than index: spawn indexing_agent
+   - If fresh (e.g., just ran /design): skip indexing
 
-1. **Refresh index**
-   - Spawn indexing_agent to update symbols
-   - Captures any changes from previous phase
+For each phase (1 to N):
 
 2. **Identify ready tasks**
    - Filter tasks with status pending or failed
@@ -633,7 +633,9 @@ For each phase (1 to N):
    - PASS: Mark phase complete, advance to next phase
    - FAIL: Enter review-fix loop (see above)
 
-7. **After all phases**
+After all phases:
+
+7. **Complete workflow**
    - Update manifest.yaml (status: completed)
    - Report success to user
 

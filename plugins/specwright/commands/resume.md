@@ -48,12 +48,12 @@ Token-efficient resumption of in-progress work.
 | Aspect | /build | /resume |
 |--------|--------|---------|
 | State discovery | Full manifest scan | Minimal read |
-| Index refresh | Always | Only if stale |
+| Index refresh | Only if stale | Only if stale |
 | Status reporting | Verbose | Terse |
 | Spec re-reading | Yes | No |
 | Use case | Fresh start or uncertain | Known in-progress |
 
-`/resume` is optimized for continuing interrupted work with minimal token overhead.
+Both commands use staleness detection for indexing. `/resume` is optimized for continuing interrupted work with minimal token overhead.
 
 ---
 

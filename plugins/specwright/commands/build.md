@@ -78,17 +78,42 @@ Determine execution mode from manifest status:
 | `defining` | Error: "Specification incomplete. Complete `/define`." |
 | `defined` | Error: "No plan. Run `/design {ticket}` first." |
 
-### Step 3: Update Index
+### Step 3: Check Index Staleness
 
-**Before starting any phase execution:**
+**Before starting any phase execution, check if index needs refresh:**
 
+```
+# Staleness algorithm (same as /resume):
+IF .specwright/index/symbols/ does not exist:
+  index_stale = true
+ELSE:
+  # Check any domain file in shared index
+  Read .specwright/index/symbols/ (pick first .yaml file)
+  Extract: generated timestamp
+
+  # Find most recent source file modification
+  find {project_root} -type f \( -name "*.go" -o -name "*.ts" -o -name "*.py" \) \
+    -newer .specwright/index/symbols/*.yaml | head -1
+
+  IF any source file newer than index:
+    index_stale = true
+  ELSE:
+    index_stale = false
+```
+
+**If stale or missing:**
 ```
 Spawn indexing_agent:
   project_root: {absolute_path}
   query_type: full_index
-```
 
 Wait for completion. If indexing fails, STOP and report error.
+```
+
+**If fresh:**
+```
+Skip indexing (index from /design is still valid)
+```
 
 Index stored at `.specwright/index/symbols/` (shared across tickets).
 

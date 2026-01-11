@@ -9,7 +9,7 @@ description: |
 
   PRODUCES: Domain-organized symbol files at .specwright/index/symbols/{domain}.yaml containing function signatures, type definitions, and interface contracts with file paths and line numbers.
 tools: Bash, Read, Write, Glob, Grep
-model: haiku
+model: opus
 ---
 
 # Indexing Agent
@@ -36,6 +36,7 @@ You build and query the codebase symbol index using ast-grep and tree-sitter. Yo
 - Make judgments about code quality
 - Modify any code files
 - Skip indexing on errors (FAIL HARD instead)
+- Create helper scripts or custom tooling—use ast-grep only
 
 ---
 

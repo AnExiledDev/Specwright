@@ -116,7 +116,22 @@ If specification has gaps for implementation planning:
 
 Stop when answers yield no new planning information.
 
-### Step 5: Two-Step Decomposition
+### Step 5: Infrastructure Check
+
+**Check `.specwright/index/dependencies.yaml` for:**
+```yaml
+dependency_management:
+  exists: false  # ← If false, create infrastructure task
+```
+
+**If dependency management missing OR spec introduces new packages:**
+- Create **TASK-001: Project infrastructure** in Phase 1
+- Task creates `pyproject.toml` / `requirements.txt` / `package.json` as appropriate
+- All other tasks depend on TASK-001
+
+**For ports/migrations:** Never assume old dependencies exist. Always create dependency files fresh.
+
+### Step 6: Two-Step Decomposition
 
 **MANDATORY: Think through decomposition before generating files.**
 
@@ -152,7 +167,7 @@ Before generating phases and tasks:
 - Target ~2-4 hours of human effort per phase
 - Favor more phases over larger phases
 
-### Step 6: Phase Ordering
+### Step 7: Phase Ordering
 
 Apply these principles:
 
@@ -167,7 +182,7 @@ Apply these principles:
 | 7 | Polish | Error handling, logging, metrics |
 | 8 | Documentation | After implementation stable |
 
-### Step 7: Generate Task Files
+### Step 8: Generate Task Files
 
 For each task, create `.specwright/{ticket}/phases/tasks/TASK-XXX.yaml`:
 
@@ -212,9 +227,11 @@ modifies:
 dependencies:
   tasks: []   # task IDs this depends on
   symbols: ["types.ID", "validation.EmailRegex"]
+
+new_dependencies: []  # packages this task introduces, e.g. ["pydantic>=2.0"]
 ```
 
-### Step 8: File Ownership Tracking (CRITICAL)
+### Step 9: File Ownership Tracking (CRITICAL)
 
 **Each file can only be owned by ONE task per phase.**
 
@@ -249,7 +266,7 @@ Solution: Add dependency TASK-006.dependencies.tasks = [TASK-005]
 Result: TASK-006 runs after TASK-005 completes
 ```
 
-### Step 9: Generate Phase Files
+### Step 10: Generate Phase Files
 
 Create `.specwright/{ticket}/phases/phase-N-tasks.yaml` for each phase:
 
@@ -276,7 +293,7 @@ file_ownership:
   "src/models/session.go": TASK-002
 ```
 
-### Step 10: Update Manifest
+### Step 11: Update Manifest
 
 Update `.specwright/{ticket}/manifest.yaml`:
 
@@ -312,7 +329,7 @@ phases:
 total_tasks: 24
 ```
 
-### Step 11: Present Plan Summary
+### Step 12: Present Plan Summary
 
 Show user:
 

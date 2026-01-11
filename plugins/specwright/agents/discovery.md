@@ -102,6 +102,30 @@ Trace module relationships:
 - Circular dependencies
 - External dependencies
 
+### Step 5.5: Check Dependency Management
+
+**Always check if dependency management exists:**
+
+```bash
+# Python
+test -f "{project_root}/pyproject.toml" -o -f "{project_root}/requirements.txt" -o -f "{project_root}/setup.py"
+# Node
+test -f "{project_root}/package.json"
+# Go
+test -f "{project_root}/go.mod"
+# Rust
+test -f "{project_root}/Cargo.toml"
+```
+
+**Report in dependencies.yaml:**
+```yaml
+dependency_management:
+  exists: false  # or true
+  file: null     # or "pyproject.toml", "package.json", etc.
+```
+
+**If missing, this signals design phase to create infrastructure task.**
+
 ### Step 6: Write Findings
 
 Write to `.specwright/index/` based on refresh_scope.
@@ -190,6 +214,10 @@ imports:
 
 ```yaml
 updated: 2025-01-10T14:30:00Z
+
+dependency_management:
+  exists: true
+  file: pyproject.toml
 
 internal:
   api:
