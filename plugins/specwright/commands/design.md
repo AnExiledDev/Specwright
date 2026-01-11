@@ -31,25 +31,48 @@ All files created/updated in:
 .specwright/{ticket}/
 ├── spec.md              # (exists, read-only)
 ├── manifest.yaml        # Updated with phases
-├── index/
-│   └── symbols.yaml     # Codebase index
-└── phases/
-    ├── phase-1-tasks.yaml
-    ├── phase-2-tasks.yaml
-    ├── ...
-    └── tasks/
-        ├── TASK-001.yaml
-        ├── TASK-002.yaml
-        └── ...
+├── phases/
+│   ├── phase-1-tasks.yaml
+│   ├── phase-2-tasks.yaml
+│   ├── ...
+│   └── tasks/
+│       ├── TASK-001.yaml
+│       ├── TASK-002.yaml
+│       └── ...
+└── audits/              # Created during /build
+    └── phase-{n}/
+
+# Shared index (not per-ticket):
+.specwright/index/
+├── architecture.yaml    # System structure
+├── patterns.yaml        # Code conventions
+├── dependencies.yaml    # External dependencies
+└── symbols/             # Per-domain symbol files
+    ├── auth.yaml
+    ├── api.yaml
+    └── ...
 ```
 
 ---
 
 ## /design (Full Generation)
 
-### Step 1: Read Specification
+### Step 1: Load Manifest and Project Root
 
-Read `.specwright/{ticket}/spec.md` completely.
+Read `{ticket}` manifest to get project_root:
+
+```yaml
+# Read .specwright/{ticket}/manifest.yaml (search from cwd up if needed)
+project_root: /absolute/path/to/project  # ← use this for all agent calls
+```
+
+**Project root was determined during `/define` and stored in manifest.**
+
+If manifest not found, error: "No manifest found. Run `/define` first."
+
+### Step 2: Read Specification
+
+Read `{project_root}/.specwright/{ticket}/spec.md` completely.
 
 Parse and extract:
 - All requirements (REQ-XXX)
@@ -57,20 +80,29 @@ Parse and extract:
 - Constraints
 - Dependencies mentioned
 
-### Step 2: Index Codebase
+### Step 3: Discover Codebase
+
+**Spawn discovery_agent:**
+```yaml
+project_root: {absolute_path_to_project}
+```
+
+Wait for completion. Discovery agent writes to:
+- `.specwright/index/architecture.yaml`
+- `.specwright/index/patterns.yaml`
+- `.specwright/index/dependencies.yaml`
 
 **Spawn indexing_agent:**
 ```yaml
-ticket: {ticket}
 project_root: {absolute_path_to_project}
 query_type: full_index
 ```
 
 Wait for completion. If indexing fails, STOP and report error.
 
-Index stored at: `.specwright/{ticket}/index/symbols.yaml`
+Index stored at: `.specwright/index/symbols/{domain}.yaml`
 
-### Step 3: Technical Clarification (if needed)
+### Step 4: Technical Clarification (if needed)
 
 If specification has gaps for implementation planning:
 - Ask technical clarifying questions as needed
@@ -84,7 +116,7 @@ If specification has gaps for implementation planning:
 
 Stop when answers yield no new planning information.
 
-### Step 4: Two-Step Decomposition
+### Step 5: Two-Step Decomposition
 
 **MANDATORY: Think through decomposition before generating files.**
 
@@ -115,9 +147,12 @@ Before generating phases and tasks:
 
 **Step 2 — Generate structure:**
 
-Target: **~2-4 hours of human effort per phase** — favor smaller phases over larger
+**Constraints:**
+- **Maximum 4 tasks per phase** (8 agents total: 4 implementation + 4 test)
+- Target ~2-4 hours of human effort per phase
+- Favor more phases over larger phases
 
-### Step 5: Phase Ordering
+### Step 6: Phase Ordering
 
 Apply these principles:
 
@@ -132,7 +167,7 @@ Apply these principles:
 | 7 | Polish | Error handling, logging, metrics |
 | 8 | Documentation | After implementation stable |
 
-### Step 6: Generate Task Files
+### Step 7: Generate Task Files
 
 For each task, create `.specwright/{ticket}/phases/tasks/TASK-XXX.yaml`:
 
@@ -179,7 +214,7 @@ dependencies:
   symbols: ["types.ID", "validation.EmailRegex"]
 ```
 
-### Step 7: File Ownership Tracking (CRITICAL)
+### Step 8: File Ownership Tracking (CRITICAL)
 
 **Each file can only be owned by ONE task per phase.**
 
@@ -214,7 +249,7 @@ Solution: Add dependency TASK-006.dependencies.tasks = [TASK-005]
 Result: TASK-006 runs after TASK-005 completes
 ```
 
-### Step 8: Generate Phase Files
+### Step 9: Generate Phase Files
 
 Create `.specwright/{ticket}/phases/phase-N-tasks.yaml` for each phase:
 
@@ -241,7 +276,7 @@ file_ownership:
   "src/models/session.go": TASK-002
 ```
 
-### Step 9: Update Manifest
+### Step 10: Update Manifest
 
 Update `.specwright/{ticket}/manifest.yaml`:
 
@@ -277,7 +312,7 @@ phases:
 total_tasks: 24
 ```
 
-### Step 10: Present Plan Summary
+### Step 11: Present Plan Summary
 
 Show user:
 
@@ -406,6 +441,10 @@ Run `/build {ticket}` to continue
 - Own specific files (no overlap with parallel tasks)
 - Map to 1-3 requirements
 
+**Phase constraints:**
+- Maximum 4 tasks per phase
+- If more tasks needed, create additional phases
+
 ---
 
 ## Error Handling
@@ -423,13 +462,13 @@ Run `/build {ticket}` to continue
 
 ## Critical Reminders
 
-1. **Index first** — Codebase context essential for good task decomposition
-2. **Two-step decomposition** — Reason through structure before generating
-3. **~2-4 hours per phase** — Size for human developer effort, favor smaller phases
-4. **Smaller is better** — More phases = tighter verification loops, easier debugging
-5. **File ownership** — NO conflicts between parallel tasks
-6. **Task files contain tests** — test_agent reads same file as implementation_agent
-7. **Dependencies explicit** — Both task dependencies and symbol dependencies
-8. **Preserve on amend** — Don't regenerate unchanged tasks
-9. **Block worked amendments** — Never lose completed work silently
-10. **Status transitions** — defined → planned
+1. **Discover then index** — Run discovery_agent then indexing_agent before decomposition
+2. **Max 4 tasks per phase** — Keeps agent count manageable (8 agents per phase)
+3. **Two-step decomposition** — Reason through structure before generating
+4. **File ownership** — NO conflicts between parallel tasks
+5. **Task files contain tests** — test_agent reads same file as implementation_agent
+6. **Dependencies explicit** — Both task dependencies and symbol dependencies
+7. **Preserve on amend** — Don't regenerate unchanged tasks
+8. **Block worked amendments** — Never lose completed work silently
+9. **Status transitions** — defined → planned
+10. **Shared index** — Index lives at `.specwright/index/`, not per-ticket

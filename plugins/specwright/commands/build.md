@@ -31,14 +31,26 @@ Executes the implementation plan.
 ├── spec.md                          # Read-only specification
 ├── manifest.yaml                    # Workflow state (updated)
 ├── blocked.md                       # Created if escalation needed
-├── index/
-│   └── symbols.yaml                 # Codebase index (refreshed each phase)
-└── phases/
-    ├── phase-1-tasks.yaml           # Phase 1 task list (updated)
-    ├── phase-2-tasks.yaml           # Phase 2 task list
-    └── tasks/
-        ├── TASK-001.yaml            # Individual task specs
-        └── ...
+├── phases/
+│   ├── phase-1-tasks.yaml           # Phase 1 task list (updated)
+│   ├── phase-2-tasks.yaml           # Phase 2 task list
+│   └── tasks/
+│       ├── TASK-001.yaml            # Individual task specs
+│       └── ...
+└── audits/
+    └── phase-{n}/                   # Per-phase audit files
+        ├── TASK-XXX_implementation.yaml
+        ├── TASK-XXX_test.yaml
+        ├── phase_verification.yaml
+        ├── review.yaml              # If fixes needed
+        └── fix_iteration_{n}.yaml   # Fix attempts
+
+# Shared index (not per-ticket):
+.specwright/index/
+├── architecture.yaml
+├── patterns.yaml
+├── dependencies.yaml
+└── symbols/{domain}.yaml
 ```
 
 ---
@@ -72,14 +84,13 @@ Determine execution mode from manifest status:
 
 ```
 Spawn indexing_agent:
-  ticket: {ticket}
   project_root: {absolute_path}
   query_type: full_index
 ```
 
 Wait for completion. If indexing fails, STOP and report error.
 
-Index ensures symbol context reflects any manual changes since last run.
+Index stored at `.specwright/index/symbols/` (shared across tickets).
 
 ### Step 4: Phase Loop
 
@@ -136,41 +147,38 @@ symbols: [same symbols]
 
 Both agents read the same task file. Implementation writes code, test writes tests.
 
-### Step 7: Collect Audits
+### Step 7: Collect Agent Responses
 
-Wait for all spawned agents to return audits:
+Wait for **ALL** spawned agents to return. Each agent returns a concise response and writes its own audit file:
 
 ```yaml
-# implementation_agent audit
-agent: implementation_agent
-task_id: TASK-006
-status: completed              # completed | failed | blocked
-timestamp: 2025-01-09T14:30:00Z
-files_created: [...]
-files_modified: [...]
-summary: "..."
-issues: [...]                  # if failed
-
-# test_agent audit
-agent: test_agent
-task_id: TASK-006
+# implementation_agent response (concise)
 status: completed
-timestamp: 2025-01-09T14:30:00Z
-files_created: [...]
-compilation: passed
-summary: "..."
+audit: .specwright/{ticket}/audits/phase-{n}/TASK-006_implementation.yaml
+issues: 0
+
+# test_agent response (concise)
+status: completed
+audit: .specwright/{ticket}/audits/phase-{n}/TASK-006_test.yaml
+issues: 0
 ```
+
+Agents write detailed audits to their audit files. Orchestrator only receives status.
+
+**CRITICAL:** Do NOT spawn verification_agent until ALL implementation_agent and test_agent calls for this phase have returned.
 
 ### Step 8: Update Task Statuses
 
 **Spawn status_agent:**
 ```yaml
 ticket: {ticket}
-audits: [all agent audits from this round]
+audit_path: .specwright/{ticket}/audits/phase-{n}/
 manifest_path: .specwright/{ticket}/manifest.yaml
 phase_file: .specwright/{ticket}/phases/phase-{N}-tasks.yaml
 action: update_tasks
 ```
+
+status_agent reads audit files from `audit_path` directory.
 
 **Status combination logic (handled by status_agent):**
 
@@ -222,16 +230,20 @@ WHILE fix_iteration <= 3 AND verification.status == failed:
     ticket: {ticket}
     phase_id: {phase_id}
     iteration: {fix_iteration}
-    failures: verification.failures
+    audit_path: .specwright/{ticket}/audits/phase-{n}/
     task_files: [affected task file paths]   # absolute paths
+
+  # review_agent writes: .specwright/{ticket}/audits/phase-{n}/review.yaml
 
   # Step B: Apply fixes
   Spawn fix_agent:
     ticket: {ticket}
     phase_id: {phase_id}
     iteration: {fix_iteration}
-    issues: review_agent.issues
+    review_file: .specwright/{ticket}/audits/phase-{n}/review.yaml
     task_files: [affected task file paths]   # absolute paths
+
+  # fix_agent writes: .specwright/{ticket}/audits/phase-{n}/fix_iteration_{n}.yaml
 
   # Step C: Re-verify
   Spawn verification_agent (same params as Step 9)
@@ -434,13 +446,13 @@ Build complete for FEAT-jwt-auth
 
 ## Critical Reminders
 
-1. **Index before each phase** — Catches manual changes
+1. **Wait for ALL agents** — Do NOT spawn verification until all impl+test agents return
 2. **Parallel impl+test** — Both agents get same task file
-3. **Status combination** — Both must succeed for task completion
-4. **Max 3 fix iterations** — Then escalate to user
-5. **Track iteration number** — Pass to review/fix agents
-6. **Write blocked.md** — User needs detailed failure info
-7. **Absolute paths** — All file paths passed to agents are absolute
-8. **Save state continuously** — Resumable at any point
-9. **Skip blocked tasks** — Don't retry infinitely
+3. **Concise responses** — Agents write audit files, return only status to orchestrator
+4. **Audit paths** — Pass audit_path directory, agents read/write their own files
+5. **Max 3 fix iterations** — Then escalate to user
+6. **Track iteration number** — Pass to review/fix agents
+7. **Write blocked.md** — User needs detailed failure info
+8. **Absolute paths** — All file paths passed to agents are absolute
+9. **Shared index** — Index at `.specwright/index/`, not per-ticket
 10. **Status transitions** — planned → in_progress → completed/blocked

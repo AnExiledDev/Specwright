@@ -27,7 +27,29 @@ All files created in:
 
 ## Workflow
 
-### Step 1: Parse Description and Detect Type
+### Step 1: Determine Project Root
+
+**This is the ONLY place project root is detected. All subsequent commands read it from manifest.**
+
+```
+1. Check current working directory for project markers:
+   - go.mod, package.json, pyproject.toml, setup.py, Cargo.toml
+
+2. IF marker found in cwd:
+   project_root = cwd
+
+3. ELSE walk UP directory tree until marker found or filesystem root reached
+
+4. IF no marker found walking up:
+   - Check immediate subdirectories for markers
+   - IF multiple projects found: ASK user which project
+   - IF single project found: use that directory
+   - IF none found: ERROR "No project detected"
+
+5. Convert to absolute path and store for manifest
+```
+
+### Step 2: Parse Description and Detect Type
 
 **Type detection algorithm:**
 
@@ -42,7 +64,7 @@ All files created in:
 
 **Default:** `FEAT-` if no keywords match.
 
-### Step 2: Generate Ticket ID
+### Step 3: Generate Ticket ID
 
 Extract key nouns from description, convert to kebab-case:
 
@@ -65,17 +87,18 @@ Proceed with this ID? (or provide alternative)
 
 Wait for user confirmation or alternative.
 
-### Step 3: Create Folder Structure
+### Step 4: Create Folder Structure
 
 After ticket ID confirmed:
 
 ```bash
-mkdir -p .specwright/{ticket}
+mkdir -p {project_root}/.specwright/{ticket}
 ```
 
 Create initial `manifest.yaml`:
 ```yaml
 ticket: {ticket}
+project_root: {absolute_path}    # ← stored here, read by all other commands
 status: defining
 current_phase: 0
 phases: []
@@ -92,7 +115,7 @@ created: {timestamp}
 | `blocked` | Phase blocked, needs intervention |
 | `completed` | All phases done |
 
-### Step 4: Requirement Elicitation
+### Step 5: Requirement Elicitation
 
 **Gather requirements through structured questioning.**
 
@@ -141,7 +164,7 @@ created: {timestamp}
 - Answers are yielding no new requirement information
 - You're asking questions you could answer yourself from code analysis
 
-### Step 5: Two-Step Specification Generation
+### Step 6: Two-Step Specification Generation
 
 **MANDATORY: Think before writing.**
 
@@ -225,7 +248,7 @@ Before writing the specification:
 - [Team/resource dependency]
 ```
 
-### Step 6: Present and Confirm
+### Step 7: Present and Confirm
 
 Show draft specification to user:
 ```
@@ -240,7 +263,7 @@ Open Questions: {count}
 Should I finalize this specification?
 ```
 
-### Step 7: Save and Update Status
+### Step 8: Save and Update Status
 
 On user confirmation:
 

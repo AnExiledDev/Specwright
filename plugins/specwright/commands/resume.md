@@ -29,10 +29,16 @@ Token-efficient resumption of in-progress work.
 .specwright/{ticket}/
 ├── manifest.yaml                    # Read to determine state
 ├── blocked.md                       # Read if status: blocked
-├── index/
-│   └── symbols.yaml                 # Staleness check
-└── phases/
-    └── phase-{N}-tasks.yaml         # Current phase tasks
+├── phases/
+│   └── phase-{N}-tasks.yaml         # Current phase tasks
+└── audits/
+    └── phase-{n}/                   # Scan for incomplete work
+        ├── TASK-XXX_implementation.yaml
+        └── TASK-XXX_test.yaml
+
+# Shared index (staleness check):
+.specwright/index/
+└── symbols/{domain}.yaml
 ```
 
 ---
@@ -67,18 +73,33 @@ Read .specwright/{ticket}/phases/phase-{current_phase}-tasks.yaml
 
 **No spec re-reading.** **No full manifest analysis.**
 
-### Step 2: Staleness Detection
+### Step 2: Validate Project Root
+
+Before any file operations, validate project_root:
+
+```
+IF project_root not absolute path:
+  Error: "project_root must be absolute path"
+
+IF project_root does not exist:
+  Error: "Project root not found: {path}"
+```
+
+All subsequent file paths derived from project_root.
+
+### Step 3: Staleness Detection
 
 Check if index needs refresh:
 
 **Staleness algorithm:**
 ```
-Read .specwright/{ticket}/index/symbols.yaml
+# Check any domain file in shared index
+Read .specwright/index/symbols/ (pick first .yaml file)
 Extract: generated timestamp
 
 Find most recent source file modification:
   find {project_root} -type f \( -name "*.go" -o -name "*.ts" -o -name "*.py" \) \
-    -newer .specwright/{ticket}/index/symbols.yaml | head -1
+    -newer .specwright/index/symbols/*.yaml | head -1
 
 IF any source file newer than index:
   index_stale = true
@@ -89,7 +110,6 @@ ELSE:
 **If stale:**
 ```
 Spawn indexing_agent:
-  ticket: {ticket}
   project_root: {absolute_path}
   query_type: full_index
 
@@ -101,7 +121,25 @@ Wait for completion
 Skip indexing (saves tokens)
 ```
 
-### Step 3: Handle Based on Status
+### Step 4: Scan Existing Audits
+
+Check for incomplete work from previous run:
+
+```
+Scan .specwright/{ticket}/audits/phase-{current_phase}/
+
+IF audit files exist:
+  # Determine which tasks already have audits
+  completed_audits = []
+  FOR each TASK-XXX_implementation.yaml:
+    IF corresponding TASK-XXX_test.yaml exists:
+      completed_audits.append(TASK-XXX)
+
+  # Tasks with audits may not need re-execution
+  # status_agent will reconcile
+```
+
+### Step 5: Handle Based on Status
 
 #### If `status: in_progress`
 
@@ -153,7 +191,7 @@ DELETE manifest.blocked_since
 EXECUTE_PHASE(current_phase)
 ```
 
-### Step 4: Terse Progress Reporting
+### Step 6: Terse Progress Reporting
 
 Unlike `/build`, `/resume` uses minimal output:
 
@@ -177,7 +215,7 @@ Phase {N+1}/8: {remaining} tasks
 - Verification result
 - Errors if they occur
 
-### Step 5: Continue Normal Flow
+### Step 7: Continue Normal Flow
 
 After resumption setup, execution follows `/build` flow:
 - Phase loop (Step 4)
@@ -327,13 +365,13 @@ Phase 5 complete.
 
 ## Critical Reminders
 
-1. **Minimal state read** — Only manifest + current phase file
-2. **Staleness check** — Compare timestamps, not file contents
-3. **Terse output** — Token efficiency is the point
-4. **Confirm blocked retry** — User should know what they're retrying
-5. **Reset on retry** — in_progress → pending, fresh fix iterations
-6. **Skip spec reading** — Already encoded in task files
-7. **Same flow after setup** — Joins /build at phase loop
-8. **Preserve blocked.md** — Historical record
+1. **Validate project_root** — Must be absolute, must exist
+2. **Scan audit files** — Check for completed work from previous run
+3. **Staleness check** — Compare timestamps, not file contents
+4. **Terse output** — Token efficiency is the point
+5. **Confirm blocked retry** — User should know what they're retrying
+6. **Reset on retry** — in_progress → pending, fresh fix iterations
+7. **Absolute paths** — All paths derived from project_root
+8. **Shared index** — Check `.specwright/index/`, not per-ticket
 9. **No full manifest scan** — Trust current_phase from manifest
 10. **Graceful degradation** — Missing index triggers refresh, not error

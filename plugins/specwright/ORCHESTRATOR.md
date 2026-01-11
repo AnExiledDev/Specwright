@@ -20,13 +20,19 @@ You manage workflow state and delegate to agents. You do not write implementatio
 - Make workflow decisions
 
 **Agent responsibilities:**
+- Discover codebase structure (discovery_agent)
+- Build symbol index (indexing_agent)
 - Write implementation code (implementation_agent)
 - Write test code (test_agent)
 - Run verification (verification_agent)
 - Analyze failures (review_agent)
 - Apply fixes (fix_agent)
-- Build symbol index (indexing_agent)
 - Update statuses (status_agent)
+
+**PROHIBITED:**
+- Do NOT write audit files (agents write their own)
+- Do NOT poll agent status (use block-wait)
+- Do NOT spawn verification_agent until ALL task agents return
 
 ### 2. Block-Wait for Agent Results
 
@@ -84,7 +90,7 @@ Every workflow phase must be completed fully. Skipping steps or partial completi
 | Command | Purpose | You Write | Agents Spawned |
 |---------|---------|-----------|----------------|
 | `/define` | Create specification | spec.md, manifest.yaml | None |
-| `/design` | Plan implementation | phase files, task files | indexing_agent |
+| `/design` | Plan implementation | phase files, task files | discovery_agent, indexing_agent |
 | `/build` | Execute plan | blocked.md (if needed) | All execution agents |
 | `/resume` | Continue work | Same as /build | Same as /build |
 | `/revise` | Modify spec | Updated spec.md | None |
@@ -92,31 +98,99 @@ Every workflow phase must be completed fully. Skipping steps or partial completi
 
 ---
 
+## Project Root Detection
+
+**Project root is detected ONCE during `/define` and stored in manifest.yaml.**
+
+All subsequent commands (`/design`, `/build`, `/resume`) read `project_root` from the manifest.
+
+### When Detection Happens
+
+| Command | Action |
+|---------|--------|
+| `/define` | Detect project_root, store in manifest.yaml |
+| `/design` | Read project_root from manifest |
+| `/build` | Read project_root from manifest |
+| `/resume` | Read project_root from manifest |
+
+### Detection Algorithm (in /define only)
+
+```
+1. Check cwd for project markers (go.mod, package.json, pyproject.toml, Cargo.toml)
+2. IF found: project_root = cwd
+3. ELSE walk UP until marker found
+4. IF no marker found walking up:
+   - Check immediate subdirectories for markers
+   - IF multiple projects: ASK user which project
+   - IF single project: use it
+   - IF none: ERROR "No project detected"
+5. Store absolute path in manifest.yaml
+```
+
+### Multi-Project Workspace Example
+
+```
+/workspaces/
+├── projects/
+│   ├── api-service/
+│   │   ├── go.mod
+│   │   └── .specwright/FEAT-auth/manifest.yaml  # project_root: /workspaces/projects/api-service
+│   └── web-frontend/
+│       ├── package.json
+│       └── .specwright/FEAT-ui/manifest.yaml    # project_root: /workspaces/projects/web-frontend
+└── .claude/
+```
+
+### Passing project_root to Agents
+
+Read from manifest, pass as absolute path:
+- discovery_agent
+- indexing_agent
+- verification_agent
+
+Agents validate the path exists but do NOT re-detect project markers.
+
+---
+
 ## File Structure
 
-All artifacts live in `.specwright/{ticket}/`:
+Per-ticket artifacts in `{project_root}/.specwright/{ticket}/`, shared index at `{project_root}/.specwright/index/`:
 
 ```
 .specwright/
+├── index/                         # SHARED across all tickets
+│   ├── architecture.yaml          # System structure (discovery_agent)
+│   ├── patterns.yaml              # Code conventions (discovery_agent)
+│   ├── dependencies.yaml          # External deps (discovery_agent)
+│   └── symbols/                   # Per-domain symbol files (indexing_agent)
+│       ├── auth.yaml
+│       ├── api.yaml
+│       └── ...
+│
 └── {TICKET}/
     ├── spec.md                    # Specification (EARS format)
     ├── manifest.yaml              # Workflow state machine
     ├── blocked.md                 # Escalation record (if created)
-    ├── index/
-    │   └── symbols.yaml           # Codebase symbol map
-    └── phases/
-        ├── phase-1-tasks.yaml     # Phase definition
-        ├── phase-2-tasks.yaml
-        └── tasks/
-            ├── TASK-001.yaml      # Individual task specifications
-            ├── TASK-002.yaml
-            └── ...
+    ├── phases/
+    │   ├── phase-1-tasks.yaml     # Phase definition
+    │   ├── phase-2-tasks.yaml
+    │   └── tasks/
+    │       ├── TASK-001.yaml      # Individual task specifications
+    │       └── ...
+    └── audits/
+        └── phase-{n}/             # Per-phase audit files
+            ├── TASK-XXX_implementation.yaml
+            ├── TASK-XXX_test.yaml
+            ├── phase_verification.yaml
+            ├── review.yaml
+            └── fix_iteration_{n}.yaml
 ```
 
 ### manifest.yaml Structure
 
 ```yaml
 ticket: {TICKET-ID}
+project_root: /absolute/path/to/project  # Set during /define, read by all commands
 status: defining | defined | planned | in_progress | blocked | completed
 current_phase: 1
 created: {ISO timestamp}
@@ -348,48 +422,78 @@ After 3 failures: Escalate
 
 ### Context Passing
 
-Pass minimal, relevant context to agents:
+Pass minimal context to agents. Agents write their own audit files and return concise responses.
 
 **To implementation_agent and test_agent:**
 ```yaml
+ticket: {ticket}
+phase_id: {phase_id}
 task_file: /absolute/path/to/TASK-001.yaml
 symbols:  # Max 10 relevant symbols
   - name: "User"
     type: "struct"
     file: "src/models/user.go"
     line: 15
-  - name: "CreateUser"
-    type: "function"
-    file: "src/services/user_service.go"
-    line: 42
-    signature: "func CreateUser(req CreateUserRequest) (*User, error)"
+```
+
+**Agent returns (concise):**
+```yaml
+status: completed
+audit: .specwright/{ticket}/audits/phase-{n}/TASK-001_implementation.yaml
+issues: 0
 ```
 
 **To review_agent:**
 ```yaml
-failures:
-  - type: "test_failure"
-    file: "src/models/user_test.go"
-    line: 45
-    message: "Expected no error, got DuplicateEmailError"
-    test_name: "TestCreate_Success"
+ticket: {ticket}
+phase_id: {phase_id}
+iteration: 1
+audit_path: .specwright/{ticket}/audits/phase-{n}/
 task_files:
   - /absolute/path/to/TASK-001.yaml
-iteration: 1
+```
+
+**review_agent returns:**
+```yaml
+status: completed
+analysis: .specwright/{ticket}/audits/phase-{n}/review.yaml
+fix_count: 2
+blocking: false
 ```
 
 **To fix_agent:**
 ```yaml
-issues:
-  - id: 1
-    type: "implementation_bug"
-    severity: "high"
-    file: "src/models/user.go"
-    line: 67
-    fix_instruction: "Add email uniqueness check before insert"
+ticket: {ticket}
+phase_id: {phase_id}
+iteration: 1
+review_file: .specwright/{ticket}/audits/phase-{n}/review.yaml
 task_files:
   - /absolute/path/to/TASK-001.yaml
-iteration: 1
+```
+
+**fix_agent returns:**
+```yaml
+status: completed
+audit: .specwright/{ticket}/audits/phase-{n}/fix_iteration_1.yaml
+applied: 2
+skipped: 0
+failed: 0
+```
+
+**To status_agent:**
+```yaml
+ticket: {ticket}
+audit_path: .specwright/{ticket}/audits/phase-{n}/
+manifest_path: .specwright/{ticket}/manifest.yaml
+phase_file: .specwright/{ticket}/phases/phase-{n}-tasks.yaml
+action: update_tasks
+```
+
+**status_agent returns:**
+```yaml
+status: completed
+tasks_updated: 4
+phase_complete: false
 ```
 
 ---
@@ -456,32 +560,36 @@ iteration: 1
    - Read spec.md completely
    - Understand all requirements and constraints
 
-2. **Build symbol index**
-   - Spawn indexing_agent for full codebase analysis
+2. **Discover codebase**
+   - Spawn discovery_agent to analyze architecture, patterns, dependencies
    - Block-wait for completion
-   - Use symbols to understand existing code patterns
+   - Discovery writes to `.specwright/index/` (architecture.yaml, patterns.yaml, dependencies.yaml)
 
-3. **Optional clarification**
+3. **Build symbol index**
+   - Spawn indexing_agent for full symbol analysis
+   - Block-wait for completion
+   - Index writes to `.specwright/index/symbols/` (per-domain files)
+
+4. **Optional clarification**
    - Ask technical questions if spec has ambiguity
    - Clarify integration points with existing code
    - Resolve constraint conflicts
 
-4. **Two-step decomposition**
+5. **Two-step decomposition**
    - Think: Identify implementation phases, dependencies, risks
    - Structure: Create phase and task hierarchy
 
-5. **Plan structure**
-   - Size phases for ~2-4 hours of human developer effort each
-   - Favor more phases over fewer (smaller is better for verification loops)
+6. **Plan structure**
+   - Maximum 4 tasks per phase (8 agents total)
    - Each task creates specific files/functions
    - Each task has clear test cases
 
-6. **Validate plan**
+7. **Validate plan**
    - Check file ownership (one task per file per phase)
    - Check for circular dependencies
    - Ensure all spec requirements are covered
 
-7. **Persist state**
+8. **Persist state**
    - Write phase-N-tasks.yaml files
    - Write TASK-XXX.yaml files
    - Update manifest.yaml (status: planned)
@@ -648,14 +756,21 @@ task_refs:
 
 ### Symbol Index Usage
 
-The symbol index provides token-efficient code context:
+The symbol index provides token-efficient code context. Symbols are organized by domain:
+
+```
+.specwright/index/symbols/
+├── auth.yaml      # Authentication-related symbols
+├── api.yaml       # API/handler symbols
+├── data.yaml      # Data layer symbols
+└── models.yaml    # Domain model symbols
+```
+
+Query relevant domain files for task context:
 
 ```yaml
 # Instead of reading entire files:
-# Read src/models/user.go (500 lines)
-# Read src/services/user_service.go (300 lines)
-
-# Pass only relevant symbols:
+# Pass only relevant symbols (max 10):
 symbols:
   - name: User
     file: src/models/user.go
@@ -777,6 +892,31 @@ Before completing each phase, verify:
 - [ ] All tests passing
 - [ ] No blocked tasks
 - [ ] Manifest updated to completed
+
+---
+
+## Context Window Management
+
+### Subagent Respawning
+
+If a subagent reports incomplete work due to context limits, respawn a fresh agent to continue:
+
+```
+IF agent_response contains "incomplete" or "partial" or "context limit":
+  1. Read the agent's partial audit file
+  2. Spawn new agent of same type with:
+     - Same task parameters
+     - continuation: true
+     - partial_audit: path/to/partial/audit.yaml
+  3. Block-wait for new agent
+  4. Merge results
+```
+
+Agents are instructed to save partial progress before reporting—use that state for continuation.
+
+### Orchestrator Persistence
+
+As you approach your token budget limit, save your current progress and state to memory before the context window refreshes. Always be as persistent and autonomous as possible and complete tasks fully, even if the end of your budget is approaching. Never artificially stop any task early regardless of the context remaining.
 
 ---
 

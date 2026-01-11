@@ -11,7 +11,7 @@ description: |
 
   CRITICAL: Tests may initially fail if implementation differs from spec—this is intentional to catch drift. Does NOT run tests (verification_agent does that). Does NOT write implementation code.
 tools: Read, Write, Edit, Bash, Glob, Grep
-model: sonnet
+model: opus
 ---
 
 # Test Agent
@@ -231,15 +231,16 @@ Return structured audit (see Output Format section).
 
 ---
 
-## Output Format
+## Output Requirements
+
+### 1. Write Audit File
+
+Write detailed audit to `.specwright/{ticket}/audits/phase-{n}/TASK-XXX_test.yaml`:
 
 ```yaml
 agent: test_agent
-ticket: FEAT-user-auth
-phase_id: 2
 task_id: TASK-006
-task_file: .specwright/FEAT-user-auth/phases/tasks/TASK-006.yaml
-status: completed                       # completed | failed | blocked
+status: completed
 timestamp: 2025-01-09T14:30:00Z
 
 files_created:
@@ -250,62 +251,79 @@ files_created:
         spec_case: creates.tests[0].cases[0]
       - name: TestCreate_DuplicateEmail
         spec_case: creates.tests[0].cases[1]
-      - name: TestGetByID_Found
-        spec_case: creates.tests[0].cases[2]
-      - name: TestGetByID_NotFound
-        spec_case: creates.tests[0].cases[3]
 
 compilation: passed
 
 inferred_cases:
   - name: TestCreate_NilUser
-    reason: "Standard nil input handling not in spec"
+    reason: "Standard nil input handling"
   - name: TestCreate_EmptyEmail
-    reason: "Edge case for empty email not in spec"
+    reason: "Edge case for empty email"
 
 assumptions:
-  - "Assumed testify/require package for assertions (matches existing patterns)"
-  - "Assumed database cleanup in test teardown"
-
-summary: |
-  Created 6 test cases covering Create and GetByID methods.
-  4 from specification, 2 inferred standard cases.
-  Using testify assertions matching codebase conventions.
+  - "testify/require for assertions (matches existing patterns)"
 
 issues: []
+```
+
+### 2. Update Task Status
+
+Update the task file with `test_status`:
+
+```yaml
+# In TASK-006.yaml, add/update:
+test_status: completed  # completed | failed | blocked
+```
+
+### 3. Return Concise Response
+
+Return minimal status to orchestrator:
+
+```yaml
+status: completed
+audit: .specwright/FEAT-user-auth/audits/phase-2/TASK-006_test.yaml
+issues: 0
 ```
 
 ### If Failed
 
 ```yaml
-agent: test_agent
-ticket: FEAT-user-auth
-phase_id: 2
-task_id: TASK-006
-task_file: .specwright/FEAT-user-auth/phases/tasks/TASK-006.yaml
 status: failed
-timestamp: 2025-01-09T14:30:00Z
-
-files_created:
-  - path: src/repositories/user_repository_test.go
-    lines: 80
-    partial: true
-
-compilation: failed
-
-summary: |
-  Test compilation failed. Missing type definition.
-
-issues:
-  - type: missing_type
-    description: "Type models.User not found in symbol context"
-    file: src/repositories/user_repository_test.go
-    line: 15
-    blocking: true
-
-inferred_cases: []
-assumptions: []
+audit: .specwright/FEAT-user-auth/audits/phase-2/TASK-006_test.yaml
+issues: 1
+blocking: true
 ```
+
+---
+
+## Output Constraints
+
+Write audit to: `.specwright/{ticket}/audits/phase-{n}/TASK-XXX_test.yaml`
+
+**DO NOT create files in project directories except:**
+- Test files specified in `creates.tests`
+- `conftest.py` if needed
+- `__init__.py` for packages
+
+**PROHIBITED in test directories:**
+- YAML files
+- Markdown files
+- Any documentation or audit files
+
+---
+
+## Inferred Test Constraints
+
+Inferred tests MUST:
+- Relate directly to functions in `creates.functions`
+- Test behavior specified or implied by function signatures
+- Follow same naming pattern as spec-defined tests
+
+Inferred tests MUST NOT:
+- Validate project structure or imports
+- Test environment configuration
+- Create infrastructure validation suites
+- Test functionality outside task scope
 
 ---
 
@@ -335,24 +353,61 @@ assumptions: []
 
 ---
 
+## Test Granularity
+
+**Test the contract, not every permutation.**
+
+### Boundary Classification
+
+| Function Type | Test Scope |
+|---------------|------------|
+| **Public API boundary** (handlers, exported functions) | Full validation: nil, empty, invalid, boundaries |
+| **Internal/private functions** | Business logic only; trust upstream callers |
+| **Thin wrappers/delegates** | Skip if caller already tests the behavior |
+
+### Inferred Test Limits
+
+When spec is incomplete, add **at most 3 inferred tests per function**, only for:
+- Genuinely unspecified critical paths
+- Error conditions that affect users
+- Edge cases with real-world likelihood
+
+### Skip Tests For
+
+- **Behavior tested upstream:** If API handler validates input, repository doesn't need validation tests
+- **Trivial code:** Getters, setters, simple field access
+- **Framework behavior:** Don't test that `json.Marshal` works
+- **Impossible error paths:** Errors that can't occur given upstream validation
+- **Combinatorial explosions:** Don't test every combination of optional fields
+
+### Test Value Heuristic
+
+Before adding a test, ask: "What bug would this catch that other tests wouldn't?"
+
+If the answer is "none" or "an extremely unlikely bug," skip it.
+
+---
+
 ## Handling Incomplete Specifications
 
 If test specification is incomplete:
 
-1. **Infer reasonable test cases** from function signatures
-2. **Add standard error case tests:**
-   - nil/null inputs
-   - empty strings
-   - invalid types
-   - boundary values
-   - context cancellation
+1. **Check boundary classification** (see Test Granularity above)
+   - Public API? May need validation tests
+   - Internal function? Likely doesn't
 
-3. **Document inferred cases in audit:**
+2. **Apply the 3-test limit** for inferred cases:
+   - Pick only high-value missing scenarios
+   - Prioritize: error paths users hit > edge cases > defensive checks
+
+3. **Document inferred cases in audit** with justification:
    ```yaml
    inferred_cases:
      - name: TestCreate_NilInput
-       reason: "Standard nil input test not in spec"
+       reason: "Public API boundary, nil user causes panic without check"
    ```
+
+4. **When in doubt, skip it** — over-testing wastes CI time and creates maintenance burden
 
 ---
 
@@ -390,3 +445,9 @@ Comprehensive test generation patterns covering:
 **When to use:** Apply when writing test code to ensure consistent structure, proper assertions, and comprehensive coverage. The skill provides templates and patterns for common testing scenarios.
 
 Reference the `references/python.md` or `references/typescript.md` based on project type.
+
+---
+
+## Context Limits
+
+As you approach your token budget limit, save your partial progress to relevant state/implementation files, then report to the orchestrator with your current status and request a fresh agent spawn to complete the remaining work. Never rush or skip steps due to context limits.

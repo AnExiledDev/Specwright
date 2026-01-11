@@ -47,6 +47,12 @@ pacman -S ast-grep
 
 Verify installation: `ast-grep --version`
 
+### Agent Restriction Hook (Automatic)
+
+Specwright includes a hook that automatically blocks `explore` agents from being spawned. This prevents token waste from redundant exploration—use `discovery` or `indexing` agents instead.
+
+The hook is configured automatically when the plugin is installed. No manual setup required.
+
 ## Usage
 
 Launch Claude Code with the orchestrator system prompt:
@@ -93,19 +99,20 @@ Decomposes the specification into an executable plan.
 ```
 Specwright:
   1. Reads spec.md completely
-  2. Indexes your codebase (extracts types, functions, interfaces)
-  3. Asks technical clarification questions if needed
-  4. Generates phased task hierarchy
-  5. Updates manifest.yaml (status: planned)
+  2. Runs discovery_agent (architecture, patterns, dependencies)
+  3. Runs indexing_agent (symbols organized by domain)
+  4. Asks technical clarification questions if needed
+  5. Generates phased task hierarchy
+  6. Updates manifest.yaml (status: planned)
 ```
 
 **Output:**
 - `.specwright/{ticket}/phases/phase-1-tasks.yaml` through `phase-N-tasks.yaml`
 - `.specwright/{ticket}/phases/tasks/TASK-001.yaml` through `TASK-NNN.yaml`
-- `.specwright/{ticket}/index/symbols.yaml`
+- `.specwright/index/` (shared across all tickets)
 
 **Phasing Strategy:**
-- Each phase represents ~2-4 hours of human developer effort
+- **Maximum 4 tasks per phase** (8 agents: 4 implementation + 4 test)
 - Phases follow architectural layers: Types → Interfaces → Data → Services → API → Integration
 - No file ownership conflicts within a phase (enables parallelism)
 - More smaller phases = tighter verification loops = easier debugging
@@ -134,13 +141,14 @@ Executes the plan with parallel agents and verification.
 
 ```
 FOR each phase:
-  1. Index codebase (updates symbol cache)
+  1. Refresh symbol index (updates shared cache)
   2. Find ready tasks (pending status, dependencies met)
   3. For each ready task, spawn IN PARALLEL:
-     - implementation_agent → writes production code
-     - test_agent → writes tests from same spec
-  4. Wait for both agents to complete
-  5. Run verification pipeline:
+     - implementation_agent → writes code + audit file
+     - test_agent → writes tests + audit file
+  4. Wait for ALL agents to return (CRITICAL: do not proceed early)
+  5. Run status_agent to combine audit results
+  6. Run verification pipeline:
      - Lint (ruff, eslint, golangci-lint, etc.)
      - Type check (mypy, tsc, go build, etc.)
      - Tests (pytest, npm test, go test, etc.)
@@ -148,9 +156,10 @@ FOR each phase:
   IF verification passes → next phase
 
   IF verification fails → enter review-fix loop:
-     - Iteration 1: Find all issues, apply all fixes
-     - Iteration 2: Focus on remaining issues, conservative fixes
-     - Iteration 3: Surgical fix on root cause
+     - review_agent reads audit files, writes review.yaml
+     - fix_agent reads review.yaml, applies fixes
+     - verification_agent re-runs pipeline
+     - Up to 3 iterations
 
      IF still failing after 3 iterations:
        → Write blocked.md with failure history
@@ -159,6 +168,8 @@ FOR each phase:
 ```
 
 **Why parallel implementation + tests?** Both agents read the same task specification. If the implementation doesn't match what the test expects (based on the spec), the test fails. Drift is caught immediately, not weeks later.
+
+**Why audit files?** Agents write detailed audits to disk and return only concise status to the orchestrator. This preserves context even if the orchestrator's context depletes, and enables recovery via `/resume`.
 
 ### Resuming & Revising
 
@@ -210,19 +221,33 @@ Specwright:
 After running `/define` and `/design`, your project contains:
 
 ```
-.specwright/FEAT-jwt-authentication/
-├── spec.md                     # Your specification (EARS format)
-├── manifest.yaml               # State machine + progress tracking
-├── blocked.md                  # Created only if escalation needed
-├── index/
-│   └── symbols.yaml            # Codebase symbol map
-└── phases/
-    ├── phase-1-tasks.yaml      # Phase 1 task list + file ownership
-    ├── phase-2-tasks.yaml      # Phase 2 task list + file ownership
-    └── tasks/
-        ├── TASK-001.yaml       # Individual task specifications
-        ├── TASK-002.yaml
-        └── ...
+.specwright/
+├── index/                          # SHARED across all tickets
+│   ├── architecture.yaml           # System structure (discovery)
+│   ├── patterns.yaml               # Code conventions (discovery)
+│   ├── dependencies.yaml           # External deps (discovery)
+│   └── symbols/                    # Per-domain symbol files (indexing)
+│       ├── auth.yaml
+│       ├── api.yaml
+│       └── ...
+│
+└── FEAT-jwt-authentication/        # Per-ticket artifacts
+    ├── spec.md                     # Your specification (EARS format)
+    ├── manifest.yaml               # State machine + progress tracking
+    ├── blocked.md                  # Created only if escalation needed
+    ├── phases/
+    │   ├── phase-1-tasks.yaml      # Phase 1 task list + file ownership
+    │   ├── phase-2-tasks.yaml      # Phase 2 task list + file ownership
+    │   └── tasks/
+    │       ├── TASK-001.yaml       # Individual task specifications
+    │       └── ...
+    └── audits/                     # Agent audit files (created during /build)
+        └── phase-{n}/
+            ├── TASK-XXX_implementation.yaml
+            ├── TASK-XXX_test.yaml
+            ├── phase_verification.yaml
+            ├── review.yaml
+            └── fix_iteration_{n}.yaml
 ```
 
 **manifest.yaml** tracks the state machine:
@@ -249,19 +274,20 @@ timestamps:
 
 ## Agents
 
-Seven specialized agents handle execution:
+Eight specialized agents handle execution:
 
 | Agent | Purpose | Runs | Input | Output |
 |-------|---------|------|-------|--------|
-| **implementation** | Writes production code | Parallel with test | Task spec + 10 relevant symbols | Implementation files |
-| **test** | Writes tests from spec | Parallel with impl | Task spec + 10 relevant symbols | Test files |
-| **verification** | Runs lint → type → tests | After impl+test | Phase files + project | Pass/fail report |
-| **review** | Analyzes failures | After failed verification | Failures + task specs | Fix instructions |
-| **fix** | Applies fixes | After review | Issues + instructions | Modified files |
-| **indexing** | Extracts codebase symbols | Phase start | Project root | symbols.yaml |
-| **status** | Updates manifest | After agents complete | Agent audits | Updated manifest |
+| **discovery** | Analyzes architecture, patterns, dependencies | Before indexing | Project root | architecture.yaml, patterns.yaml |
+| **indexing** | Extracts codebase symbols by domain | After discovery | Project root | symbols/{domain}.yaml |
+| **implementation** | Writes production code | Parallel with test | Task spec + 10 symbols | Implementation files + audit |
+| **test** | Writes tests from spec | Parallel with impl | Task spec + 10 symbols | Test files + audit |
+| **verification** | Runs lint → type → tests | After ALL impl+test return | Phase + project | phase_verification.yaml |
+| **review** | Analyzes failures | After failed verification | Audit files + specs | review.yaml with fix instructions |
+| **fix** | Applies fixes | After review | review.yaml + specs | fix_iteration_{n}.yaml |
+| **status** | Updates manifest | After agents complete | Audit directory | Updated manifest |
 
-**Token Efficiency:** The indexing agent extracts all symbols (functions, types, interfaces) from your codebase. Implementation and test agents receive only the **10 most relevant symbols** for their task—not entire files. This keeps context focused and costs down.
+**Token Efficiency:** Agents write detailed audits to files and return only concise status to the orchestrator. The symbol index is organized by domain (auth, api, data, etc.) so agents receive only relevant context.
 
 ---
 

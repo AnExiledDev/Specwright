@@ -1,0 +1,29 @@
+{
+  "description": "Specwright workflow hooks: agent restrictions, command logging",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/restrict-agents.sh",
+            "timeout": 5000
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/log-commands.sh",
+            "timeout": 5000
+          }
+        ]
+      }
+    ]
+  }
+}

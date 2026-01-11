@@ -3,15 +3,13 @@ name: indexing
 description: |
   Builds and queries the codebase symbol index using ast-grep and tree-sitter.
 
-  INVOKED BY: Orchestrator at workflow start (full_index) or before spawning implementation/test agents (query_symbols).
+  INVOKED BY: Orchestrator at workflow start (full_index), before spawning implementation/test agents (query_symbols), or to update specific domain (refresh_domain).
 
-  RECEIVES: ticket, project_root, query_type (full_index | query_symbols), optional query and language hints.
+  RECEIVES: project_root, query_type (full_index | query_symbols | refresh_domain), optional query, domain, and language hints.
 
-  PRODUCES: Symbol index at .specwright/{ticket}/index/symbols.yaml containing function signatures, type definitions, and interface contracts with file paths and line numbers.
-
-  PURPOSE: Enables token-efficient context passing. Instead of reading entire files, downstream agents receive only the 10 most relevant symbols for their task.
+  PRODUCES: Domain-organized symbol files at .specwright/index/symbols/{domain}.yaml containing function signatures, type definitions, and interface contracts with file paths and line numbers.
 tools: Bash, Read, Write, Glob, Grep
-model: sonnet
+model: haiku
 ---
 
 # Indexing Agent
@@ -61,36 +59,41 @@ You build and query the codebase symbol index using ast-grep and tree-sitter. Yo
 
 Index stored at:
 ```
-.specwright/{ticket}/index/
-└── symbols.yaml
+.specwright/index/symbols/
+├── auth.yaml
+├── api.yaml
+├── data.yaml
+├── models.yaml
+└── {domain}.yaml
 ```
 
-**symbols.yaml structure:**
+**Domain file structure (symbols/auth.yaml):**
 ```yaml
-generated: 2025-01-09T14:00:00Z
-project_root: /path/to/project
-languages:
-  go: 45
-  typescript: 12
+domain: auth
+updated: 2025-01-09T14:00:00Z
 
-symbols:
+types:
   - name: "User"
-    type: struct
     file: "src/models/user.go"
     line: 15
-    signature: null
+    signature: "type User struct"
 
-  - name: "CreateUser"
-    type: function
-    file: "src/services/user_service.go"
-    line: 42
-    signature: "func CreateUser(ctx context.Context, req CreateUserRequest) (*User, error)"
-
-  - name: "UserRepository"
-    type: interface
-    file: "src/repositories/repository.go"
+  - name: "AuthToken"
+    file: "src/models/auth.go"
     line: 8
-    signature: null
+    signature: "type AuthToken struct"
+
+functions:
+  - name: "Authenticate"
+    file: "src/services/auth_service.go"
+    line: 42
+    signature: "func Authenticate(ctx context.Context, email, password string) (*AuthToken, error)"
+
+interfaces:
+  - name: "AuthRepository"
+    file: "src/repositories/auth_repository.go"
+    line: 10
+    signature: "type AuthRepository interface"
 ```
 
 ---
@@ -99,14 +102,11 @@ symbols:
 
 ### full_index
 
-Build complete symbol index for the project. Run at:
-- Workflow start (after `/design`)
-- Before each phase in `/build`
-- When orchestrator detects staleness in `/resume`
+Build complete symbol index for the project. Writes to all domain files in `.specwright/index/symbols/`.
 
 ### query_symbols
 
-Query specific symbols by name. Used when orchestrator needs targeted context for agents.
+Query specific symbols by name. Returns max 10 symbols.
 
 ```yaml
 # Input
@@ -129,11 +129,35 @@ results:
       }
 ```
 
+### refresh_domain
+
+Update a specific domain's symbol file.
+
+```yaml
+# Input
+domain: auth
+
+# Output
+Updated: .specwright/index/symbols/auth.yaml
+```
+
 ---
 
 ## Workflow
 
-### Step 1: Detect Languages
+### Step 1: Validate Project Root
+
+Quick sanity check (project_root was already validated during `/define`):
+
+```bash
+# Verify path exists and is absolute
+[[ "{project_root}" = /* ]] || { echo "ERROR: project_root must be absolute"; exit 1; }
+test -d "{project_root}" || { echo "ERROR: project_root not found: {project_root}"; exit 1; }
+```
+
+**Do NOT re-detect project markers.** The orchestrator already validated this during `/define`.
+
+### Step 2: Detect Languages
 
 If not provided, detect from project structure:
 
@@ -160,7 +184,7 @@ test -f "{project_root}/Cargo.toml" && echo "rust"
 | Python | `.py` | `pyproject.toml`, `setup.py`, `requirements.txt` |
 | Rust | `.rs` | `Cargo.toml` |
 
-### Step 2: Extract Symbols by Language
+### Step 3: Extract Symbols by Language
 
 **Go:**
 ```bash
@@ -204,7 +228,7 @@ ast-grep --pattern 'class $NAME:' --lang python {project_root}
 ast-grep --pattern 'def $NAME(self, $$$):' --lang python {project_root}
 ```
 
-### Step 3: Apply Exclusions
+### Step 4: Apply Exclusions
 
 Skip these paths in all extraction commands:
 - `node_modules/`
@@ -223,7 +247,7 @@ ast-grep --pattern '$PATTERN' --lang go \
   {project_root}
 ```
 
-### Step 4: Build Symbol Map
+### Step 5: Build Symbol Map
 
 Structure extracted symbols with:
 - `name`: Symbol identifier
@@ -232,7 +256,7 @@ Structure extracted symbols with:
 - `line`: Line number
 - `signature`: Full signature (functions/methods) or null
 
-### Step 5: Write Index File
+### Step 6: Write Index File
 
 Create/overwrite `.specwright/{ticket}/index/symbols.yaml`:
 
@@ -250,105 +274,56 @@ symbols:
     signature: "{signature or null}"
 ```
 
-### Step 6: Return Audit
+### Step 7: Return Audit
 
 Report extraction results.
 
 ---
 
-## Output Format
+## Response Format
+
+Return concise status to orchestrator. Details in files.
 
 ### full_index Response
 
 ```yaml
-agent: indexing_agent
-ticket: FEAT-user-auth
-query_type: full_index
-status: completed                  # completed | failed
-timestamp: 2025-01-09T14:00:00Z
-
-languages:
-  go: 45
-  typescript: 12
-
-symbols:
-  total: 156
-  by_type:
-    struct: 23
-    interface: 8
-    function: 112
-    class: 5
-    method: 8
-
-index_path: .specwright/FEAT-user-auth/index/symbols.yaml
-
-sample:                            # Top 10 for verification
-  - name: "User"
-    type: struct
-    file: "src/models/user.go"
-    line: 15
-
-  - name: "CreateUser"
-    type: function
-    file: "src/services/user_service.go"
-    line: 42
-
-summary: "Indexed 156 symbols from 57 files (Go: 45, TypeScript: 12)"
+status: completed
+index: .specwright/index/symbols/
+symbols_indexed: 156
+domains: [auth, api, data, models]
 ```
 
 ### query_symbols Response
 
 ```yaml
-agent: indexing_agent
-ticket: FEAT-user-auth
-query_type: query_symbols
 status: completed
-timestamp: 2025-01-09T14:05:00Z
-
-query:
-  names: ["User", "UserRepository"]
-  types: null
-  file_pattern: null
-
 results:
   - name: "User"
-    type: struct
     file: "src/models/user.go"
     line: 15
-    context: |
-      type User struct {
-        ID    string `json:"id"`
-        Email string `json:"email"`
-        Name  string `json:"name"`
-      }
+    context: "type User struct { ... }"
 
   - name: "UserRepository"
-    type: interface
     file: "src/repositories/repository.go"
     line: 8
-    context: |
-      type UserRepository interface {
-        Create(ctx context.Context, user *User) error
-        GetByID(ctx context.Context, id string) (*User, error)
-        GetByEmail(ctx context.Context, email string) (*User, error)
-      }
+    context: "type UserRepository interface { ... }"
+```
 
-summary: "Found 2/2 requested symbols"
+### refresh_domain Response
+
+```yaml
+status: completed
+domain: auth
+file: .specwright/index/symbols/auth.yaml
+symbols_updated: 24
 ```
 
 ### Failed Response
 
 ```yaml
-agent: indexing_agent
-ticket: FEAT-user-auth
-query_type: full_index
 status: failed
-timestamp: 2025-01-09T14:00:00Z
-
 error: "ast-grep not found"
-install_command: "cargo install ast-grep"
-
-summary: "Indexing failed. Install ast-grep and retry."
+install: "cargo install ast-grep"
 ```
 
 ---
@@ -424,3 +399,9 @@ func (u *User) Validate() error {
 8. **Structured output** — Orchestrator parses your response
 9. **On-demand queries** — Support targeted symbol lookup
 10. **Token efficiency** — This agent exists to save tokens elsewhere
+
+---
+
+## Context Limits
+
+As you approach your token budget limit, save your partial progress to relevant state/implementation files, then report to the orchestrator with your current status and request a fresh agent spawn to complete the remaining work. Never rush or skip steps due to context limits.

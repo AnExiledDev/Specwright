@@ -11,7 +11,7 @@ description: |
 
   CRITICAL: Must think through implementation BEFORE coding (two-step generation). Does NOT write tests. Does NOT run tests. Verifies compilation before returning audit.
 tools: Read, Write, Edit, Bash, Glob, Grep
-model: sonnet
+model: opus
 ---
 
 # Implementation Agent
@@ -220,101 +220,71 @@ Return structured audit (see Output Format section).
 
 ---
 
-## Output Format
+## Output Requirements
+
+### 1. Write Audit File
+
+Write detailed audit to `.specwright/{ticket}/audits/phase-{n}/TASK-XXX_implementation.yaml`:
 
 ```yaml
 agent: implementation_agent
-ticket: FEAT-user-auth
-phase_id: 2
 task_id: TASK-006
-task_file: .specwright/FEAT-user-auth/phases/tasks/TASK-006.yaml
-status: completed                       # completed | failed | blocked
+status: completed
 timestamp: 2025-01-09T14:30:00Z
 
 files_created:
   - path: src/repositories/user_repository.go
     lines: 145
-    functions:
-      - Create
-      - GetByID
-      - GetByEmail
+    functions: [Create, GetByID, GetByEmail]
 
 files_modified:
   - path: src/repositories/init.go
-    changes: "Registered PostgresUserRepository in NewRepositories()"
+    changes: "Registered PostgresUserRepository"
 
 compilation: passed
 
-summary: |
-  Implemented PostgresUserRepository with Create, GetByID, GetByEmail methods.
-  Used prepared statements for SQL injection prevention.
-  Error handling follows existing repository patterns.
-
 assumptions:
-  - "Assumed email uniqueness enforced at DB level via unique constraint"
-  - "Used 5-second context timeout matching existing patterns"
+  - "Email uniqueness enforced at DB level"
+  - "5-second context timeout matching existing patterns"
 
 issues: []
+```
+
+### 2. Update Task Status
+
+Update the task file with `implementation_status`:
+
+```yaml
+# In TASK-006.yaml, add/update:
+implementation_status: completed  # completed | failed | blocked
+```
+
+### 3. Return Concise Response
+
+Return minimal status to orchestrator:
+
+```yaml
+status: completed
+audit: .specwright/FEAT-user-auth/audits/phase-2/TASK-006_implementation.yaml
+issues: 0
 ```
 
 ### If Failed
 
 ```yaml
-agent: implementation_agent
-ticket: FEAT-user-auth
-phase_id: 2
-task_id: TASK-006
-task_file: .specwright/FEAT-user-auth/phases/tasks/TASK-006.yaml
 status: failed
-timestamp: 2025-01-09T14:30:00Z
-
-files_created:
-  - path: src/repositories/user_repository.go
-    lines: 45
-    partial: true
-
-compilation: failed
-
-summary: |
-  Partial implementation. Blocked on missing dependency.
-
-issues:
-  - type: missing_dependency
-    description: "Symbol models.UserStatus not found in provided context"
-    file: src/repositories/user_repository.go
-    line: 34
-    blocking: true
-
-assumptions: []
+audit: .specwright/FEAT-user-auth/audits/phase-2/TASK-006_implementation.yaml
+issues: 1
+blocking: true
 ```
 
 ### If Blocked
 
 ```yaml
-agent: implementation_agent
-ticket: FEAT-user-auth
-phase_id: 2
-task_id: TASK-006
-task_file: .specwright/FEAT-user-auth/phases/tasks/TASK-006.yaml
 status: blocked
-timestamp: 2025-01-09T14:30:00Z
-
-files_created: []
-files_modified: []
-
-compilation: skipped
-
-summary: |
-  Cannot proceed. Specification has unresolvable ambiguity.
-
-issues:
-  - type: spec_ambiguity
-    description: "Function signature specifies error return but description says 'panic on invalid input'"
-    file: null
-    blocking: true
-    requires_user_decision: true
-
-assumptions: []
+audit: .specwright/FEAT-user-auth/audits/phase-2/TASK-006_implementation.yaml
+issues: 1
+requires_user_decision: true
 ```
 
 ---
@@ -381,3 +351,9 @@ Error handling patterns and best practices covering:
 **When to use:** Apply when implementing code that handles failure modes, validates input, or communicates with external services. The skill provides templates for error classes, logging patterns, and recovery strategies.
 
 Reference the `references/python.md` or `references/typescript.md` based on project type.
+
+---
+
+## Context Limits
+
+As you approach your token budget limit, save your partial progress to relevant state/implementation files, then report to the orchestrator with your current status and request a fresh agent spawn to complete the remaining work. Never rush or skip steps due to context limits.
